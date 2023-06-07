@@ -43,7 +43,7 @@ class UserRepository extends ServiceEntityRepository
     /**
      * @throws NonUniqueResultException
      */
-    public function findOneByUsername($value): ?User
+    public function findUserByUsername($value): ?User
     {
         return $this->createQueryBuilder('u')
             ->andWhere('u.username = :val')

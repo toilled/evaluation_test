@@ -12,39 +12,83 @@ use Symfony\Component\Routing\Annotation\Route;
 
 class UserController extends AbstractController
 {
-    #[Route('/user', methods: ['GET'])]
-    public function index(UserRepository $userRepository): JsonResponse
+    public function __construct(private readonly UserRepository $repository) {}
+
+    /**
+     * Get all users
+     */
+    #[Route('/users', methods: ['GET'])]
+    public function index(): JsonResponse
     {
         $usersArray = [];
-        $users = $userRepository->findAll();
+        $users = $this->repository->findAll();
         foreach ($users as $user) {
-            $usersArray[] = ['username' => $user->getUsername(), 'displayName' => $user->getDisplayName()];
+            $usersArray[] = [
+                'username' => $user->getUsername(),
+                'displayName' => $user->getDisplayName()
+            ];
         }
         return $this->json([
+            'count' => count($usersArray),
             'users' => $usersArray,
         ]);
     }
 
-    #[Route('/user', methods: ['PUT'])]
-    public function create(Request $request, UserRepository $userRepository): JsonResponse
+    /**
+     * Create a user
+     *
+     * @throws NonUniqueResultException
+     */
+    #[Route('/users', methods: ['PUT'])]
+    public function create(Request $request): JsonResponse
     {
+        $missingValues = [];
+        $requiredValues = [
+            'displayName',
+            'username',
+            'password'
+        ];
+        foreach ($requiredValues as $requiredValue) {
+            if (!$request->get($requiredValue)) {
+                $missingValues[] = $requiredValue;
+            }
+        }
+        if (!empty($missingValues)) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Missing values',
+                'missing' => $missingValues
+            ]);
+        }
+
+        if ($this->repository->findUserByUsername($request->get('username'))) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Duplicate username'
+            ]);
+        }
+
         $user = new User();
         $user->setDisplayName($request->get('displayName'));
         $user->setUsername($request->get('username'));
         $user->setPassword($request->get('password'));
         
-        $userRepository->save($user, true);
+        $this->repository->save($user, true);
 
-        return $this->json(['success' => true]);
+        return $this->json([
+            'success' => true
+        ]);
     }
 
     /**
+     * Retrieve a single user by username
+     *
      * @throws NonUniqueResultException
      */
-    #[Route('/user/{username}', methods: ['GET', 'HEAD'])]
-    public function singleUser(string $username, UserRepository $userRepository): JsonResponse
+    #[Route('/users/{username}', methods: ['GET', 'HEAD'])]
+    public function singleUser(string $username): JsonResponse
     {
-        $user = $userRepository->findOneByUsername($username);
+        $user = $this->repository->findUserByUsername($username);
         return $this->json([
             'username' => $user->getUsername(),
             'displayName' => $user->getDisplayName(),
@@ -52,37 +96,41 @@ class UserController extends AbstractController
     }
 
     /**
+     * Validate user credentials
+     *
      * @throws NonUniqueResultException
      */
-    #[Route('/user/{username}', methods: ['POST'])]
-    public function loginUser(string $username, Request $request, UserRepository $userRepository): JsonResponse
+    #[Route('/users/{username}', methods: ['POST'])]
+    public function loginUser(string $username, Request $request): JsonResponse
     {
-        $user = $userRepository->findOneByUsername($username);
+        $user = $this->repository->findUserByUsername($username);
         return $this->json([
             'success' => $user->checkPassword($request->get('password')),
         ]);
     }
 
     /**
+     * Update user credentials
+     *
      * @throws NonUniqueResultException
      */
-    #[Route('/user/{username}', methods: ['PUT'])]
-    public function updateUser(string $username, Request $request, UserRepository $userRepository): JsonResponse
+    #[Route('/users/{username}', methods: ['PUT'])]
+    public function updateUser(string $username, Request $request): JsonResponse
     {
-        $user = $userRepository->findOneByUsername($username);
+        $user = $this->repository->findUserByUsername($username);
 
         if ($request->get('oldPassword') == null || !$user->checkPassword($request->get('oldPassword'))) {
             return $this->json([
                 'success' => false,
-                'reason' => 'Incorrect password'
+                'error' => 'Incorrect password'
             ]);
         }
 
-        $user->setDisplayName($request->get('displayName'));
-        $user->setUsername($request->get('username'));
-        $user->setPassword($request->get('password'));
+        if ($request->get('displayName') != null) $user->setDisplayName($request->get('displayName'));
+        if ($request->get('username') != null) $user->setUsername($request->get('username'));
+        if ($request->get('password') != null) $user->setPassword($request->get('password'));
 
-        $userRepository->save($user, true);
+        $this->repository->save($user, true);
 
         return $this->json([
             'success' => true,
